@@ -2,65 +2,98 @@ name: Update OpenCode Flake
 
 on:
   schedule:
-    # Run every Monday at 2 AM UTC
-    - cron: '0 2 * * 1'
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
-      pr_title:
-        description: 'Pull Request title'
-        required: false
-        default: 'Update OpenCode to latest version'
+      force_update:
+        description: 'Force update even if version unchanged'
+        type: boolean
+        default: false
 
 jobs:
-  update:
+  check-and-update:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+      - name: Restore version cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .last-checked-version
+          key: opencode-version-${{ github.run_id }}
+          restore-keys: |
+            opencode-version-
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
-
-      - name: Check for OpenCode updates
-        id: check_update
+      - name: Get current and latest versions
+        id: versions
         run: |
-          # Get current and latest versions
+          # Get version from flake.nix
           CURRENT_VERSION=$(grep 'version = ' flake.nix | sed 's/.*version = "\(.*\)";/\1/')
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          
+          # Get latest release
           LATEST_VERSION=$(curl -s https://api.github.com/repos/sst/opencode/releases/latest | jq -r .tag_name | sed 's/^v//')
+          echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
           
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          # Check last processed version
+          if [ -f .last-checked-version ]; then
+            LAST_CHECKED=$(cat .last-checked-version)
+          else
+            LAST_CHECKED=""
+          fi
+          echo "last_checked=$LAST_CHECKED" >> $GITHUB_OUTPUT
           
-          if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
+          # Determine if update needed
+          if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ] && [ "$LAST_CHECKED" = "$LATEST_VERSION" ] && [ "${{ inputs.force_update }}" != "true" ]; then
             echo "update_needed=false" >> $GITHUB_OUTPUT
           else
             echo "update_needed=true" >> $GITHUB_OUTPUT
+            echo "$LATEST_VERSION" > .last-checked-version
           fi
 
+      - name: Install Nix (only if update needed)
+        if: steps.versions.outputs.update_needed == 'true'
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache (only if update needed)
+        if: steps.versions.outputs.update_needed == 'true'
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
       - name: Update flake
-        if: steps.check_update.outputs.update_needed == 'true'
+        if: steps.versions.outputs.update_needed == 'true' && steps.versions.outputs.current != steps.versions.outputs.latest
         run: |
-          # Run the update script
           ./update.sh
-          
-          # Verify the build works
           nix build .#opencode --no-link
 
       - name: Create Pull Request
-        if: steps.check_update.outputs.update_needed == 'true'
+        if: steps.versions.outputs.update_needed == 'true' && steps.versions.outputs.current != steps.versions.outputs.latest
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update OpenCode to ${{ steps.check_update.outputs.latest_version }}"
-          title: ${{ github.event.inputs.pr_title || format('Update OpenCode to {0}', steps.check_update.outputs.latest_version) }}
+          commit-message: "chore: update OpenCode to ${{ steps.versions.outputs.latest }}"
+          title: "Update OpenCode to ${{ steps.versions.outputs.latest }}"
           body: |
-            Updates OpenCode from ${{ steps.check_update.outputs.current_version }} to ${{ steps.check_update.outputs.latest_version }}.
+            Updates OpenCode from ${{ steps.versions.outputs.current }} to ${{ steps.versions.outputs.latest }}.
             
             This is an automated pull request created by the update workflow.
             
+            - Check runs every 6 hours
+            - Last checked version: ${{ steps.versions.outputs.last_checked }}
+            - Force update: ${{ inputs.force_update }}
+            
             Please review the changes and ensure the build succeeds before merging.
-          branch: update-opencode-${{ steps.check_update.outputs.latest_version }}
+          branch: update-opencode-${{ steps.versions.outputs.latest }}
           delete-branch: true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## OpenCode Version Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Current version: ${{ steps.versions.outputs.current }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Latest version: ${{ steps.versions.outputs.latest }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Last checked: ${{ steps.versions.outputs.last_checked }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Update needed: ${{ steps.versions.outputs.update_needed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Force update: ${{ inputs.force_update }}" >> $GITHUB_STEP_SUMMARY

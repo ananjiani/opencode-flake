@@ -43,14 +43,17 @@ nix run github:ananjiani/opencode-flake
 
 ## Automatic Updates
 
-This flake is automatically updated weekly via GitHub Actions. The workflow:
+This flake is automatically updated via GitHub Actions. The workflow:
 
-1. Checks for new OpenCode releases every Monday
-2. Updates the flake to the latest version
-3. Creates a pull request with the changes
-4. Ensures the build succeeds before proposing the update
+1. Checks for new OpenCode releases every 6 hours
+2. Uses caching to avoid duplicate work when no updates are available
+3. Updates the flake to the latest version when a new release is found
+4. Creates a pull request with the changes
+5. Ensures the build succeeds before proposing the update
 
-You can also trigger updates manually from the Actions tab.
+**Update frequency**: Every 6 hours (maximum 6-hour delay from release to PR)
+
+You can also trigger updates manually from the Actions tab with an optional force update flag.
 
 ## Manual Updates
 
