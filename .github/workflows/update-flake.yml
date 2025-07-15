@@ -1,0 +1,66 @@
+name: Update OpenCode Flake
+
+on:
+  schedule:
+    # Run every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      pr_title:
+        description: 'Pull Request title'
+        required: false
+        default: 'Update OpenCode to latest version'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Check for OpenCode updates
+        id: check_update
+        run: |
+          # Get current and latest versions
+          CURRENT_VERSION=$(grep 'version = ' flake.nix | sed 's/.*version = "\(.*\)";/\1/')
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/sst/opencode/releases/latest | jq -r .tag_name | sed 's/^v//')
+          
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          
+          if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "update_needed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update flake
+        if: steps.check_update.outputs.update_needed == 'true'
+        run: |
+          # Run the update script
+          ./update.sh
+          
+          # Verify the build works
+          nix build .#opencode --no-link
+
+      - name: Create Pull Request
+        if: steps.check_update.outputs.update_needed == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update OpenCode to ${{ steps.check_update.outputs.latest_version }}"
+          title: ${{ github.event.inputs.pr_title || format('Update OpenCode to {0}', steps.check_update.outputs.latest_version) }}
+          body: |
+            Updates OpenCode from ${{ steps.check_update.outputs.current_version }} to ${{ steps.check_update.outputs.latest_version }}.
+            
+            This is an automated pull request created by the update workflow.
+            
+            Please review the changes and ensure the build succeeds before merging.
+          branch: update-opencode-${{ steps.check_update.outputs.latest_version }}
+          delete-branch: true
