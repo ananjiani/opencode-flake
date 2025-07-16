@@ -44,6 +44,23 @@ if ! nix build --no-link .#opencode 2>&1 | tee build2.log; then
     fi
 fi
 
-rm -f build.log build2.log
+# Check for models.dev API hash updates
+echo "Checking for models.dev API hash updates..."
+if ! nix build --no-link .#opencode 2>&1 | tee build3.log; then
+    if grep -q "api.json" build3.log && grep -q "got:" build3.log; then
+        NEW_MODELS_HASH=$(grep -A1 "got:" build3.log | tail -1 | xargs)
+        echo "models.dev API hash changed to: $NEW_MODELS_HASH"
+        
+        # Update models-dev-data hash in flake.nix
+        OLD_MODELS_HASH=$(grep -A2 'models-dev-data = pkgs.fetchurl' flake.nix | grep 'sha256 = ' | sed 's/.*sha256 = "\(.*\)";/\1/')
+        sed -i "s|$OLD_MODELS_HASH|$NEW_MODELS_HASH|" flake.nix
+        
+        # Try building one more time
+        echo "Retrying build with updated models.dev hash..."
+        nix build --no-link .#opencode 2>&1 | tee build4.log || true
+    fi
+fi
+
+rm -f build.log build2.log build3.log build4.log
 
 echo "Update complete. Please review changes and test the build."

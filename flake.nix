@@ -114,7 +114,7 @@
             
             models-dev-data = pkgs.fetchurl {
               url = "https://models.dev/api.json";
-              sha256 = "sha256-AMJyDjqOKTGGRYLN5rEUQraJ+5E+9YULUH1gWph0s0o=";
+              sha256 = "sha256-6fr0/updN1LaRmUAkVrYptKavrH3OjkNp6Ie3Fs9rW4=";
             };
             
             nativeBuildInputs = [ pkgs.bun ];
