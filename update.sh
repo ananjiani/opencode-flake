@@ -5,7 +5,7 @@ echo "Fetching latest OpenCode release..."
 
 # Get latest release version from GitHub API
 LATEST_VERSION=$(curl -s https://api.github.com/repos/sst/opencode/releases/latest | jq -r .tag_name | sed 's/^v//')
-CURRENT_VERSION=$(grep 'version = ' flake.nix | sed 's/.*version = "\(.*\)";/\1/')
+CURRENT_VERSION=$(grep -E '^\s+version = "' flake.nix | sed 's/.*version = "\(.*\)";/\1/')
 
 if [ "$LATEST_VERSION" = "$CURRENT_VERSION" ]; then
     echo "Already at latest version: $CURRENT_VERSION"

@@ -31,7 +31,7 @@
           
           opencode = pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
             pname = "opencode";
-            version = "0.3.5";
+            version = "0.3.15";
             
             src = pkgs.fetchFromGitHub {
               owner = "sst";
